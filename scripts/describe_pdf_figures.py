@@ -57,7 +57,7 @@ from PIL import Image
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from diagram_connections import CHART_NOTE, ask, connections, keep_sections  # noqa: E402
-from openai_client import MODEL, client  # noqa: E402
+from openai_client import VISION_MODEL as MODEL, client  # noqa: E402  (figures are images)
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "eval set"

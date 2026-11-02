@@ -31,21 +31,22 @@ def _env(*names, default=""):
 
 
 # AI Lodge names first (API_BASE_URL, API_KEY, MODEL_NAME, <PURPOSE>_MODEL_NAME);
-# the original OPENAI_* names still work. Default: the apiyi gateway and gpt-5-mini,
-# the model record 0003 ran everything on through apiyi.
+# the original OPENAI_* names still work. Default: the apiyi gateway and deepseek-v4-flash
+# for text (record 0003 ran everything on gpt-5-mini through apiyi).
 BASE_URL = _env("API_BASE_URL", "OPENAI_BASE_URL", default="https://api.apiyi.com/v1")
 # Every model call: answering, checking, grading (docs/adr/0005).
-MODEL = _env("MODEL_NAME", "OPENAI_MODEL", default="gpt-5-mini")
+MODEL = _env("MODEL_NAME", "OPENAI_MODEL", default="deepseek-v4-flash")
 EMBEDDING_MODEL = _env("EMBEDDING_MODEL_NAME", default="text-embedding-3-small")
 # Diagram descriptions. Gemini (record 0003) is not on OpenAI; Luna has not been
 # tested on the eval images yet - gpt-5-mini misread the Q07 arrow 7 of 7 times.
-# Test before regenerating parsed/*__png.md.
-VISION_MODEL = _env("VISION_MODEL_NAME", "VISION_MODEL", default=MODEL)
+# Test before regenerating parsed/*__png.md. DeepSeek has no vision, so this does
+# not follow MODEL: it defaults to the Gemini model that wrote the kept descriptions.
+VISION_MODEL = _env("VISION_MODEL_NAME", "VISION_MODEL", default="gemini-3.5-flash-lite")
 
 
-# Models asked for JSON mode (response_format json_object). Gemini on apiyi
-# honours it too; Claude and others fall back to the reply's {...} being parsed.
-JSON_MODE_PREFIXES = ("gpt-", "gemini-")
+# Models asked for JSON mode (response_format json_object). Gemini and DeepSeek on
+# apiyi honour it too; Claude and others fall back to the reply's {...} being parsed.
+JSON_MODE_PREFIXES = ("gpt-", "gemini-", "deepseek-")
 
 
 def load_key():
