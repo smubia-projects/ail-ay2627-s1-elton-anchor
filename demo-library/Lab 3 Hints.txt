@@ -1,0 +1,26 @@
+CC101 Lab 3 hints (fictional course, written for the Anchor demo)
+
+Task 1: Start your virtual machine
+Pick the smallest free-tier machine type and the Ubuntu 24.04 image.
+Name it cc101-lab3-<your section>, for example cc101-lab3-s2.
+Allow inbound traffic on port 22 (SSH) and port 8080 (the web server). Do not open port 3306 to the internet.
+
+Task 2: Copy your files to the VM
+Use scp from your own computer: scp -r site/ ubuntu@<VM address>:~/site
+On Windows you can also use WinSCP. Copy the whole site folder, not just index.html.
+
+Task 3: Run the web server
+Connect with ssh, then: cd ~/site && python3 -m http.server 8080
+The server must listen on port 8080. Keep the terminal open while you test, or use tmux so it keeps running after you disconnect.
+
+Task 4: Check it works
+Open http://<VM address>:8080 in your browser. If the page does not load, check the firewall rule for port 8080 first.
+Take a screenshot of the page with the address bar visible for your report.
+
+Task 5: Clean up
+Stop the VM when you are done. A stopped VM does not use CPU hours, but its disk is still billed if you go over the free tier.
+Delete the VM after your lab has been marked.
+
+Common mistakes
+Forgetting the -r flag on scp copies nothing from a folder.
+Typing http.server 80 needs administrator rights; use 8080.
