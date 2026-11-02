@@ -144,15 +144,15 @@
 <section class="steps-sec"><div class="inner">
   <h2>Up and running in three steps.</h2>
   <div class="steps">
-    <div><div class="n">1</div><h3>Sign up</h3><p>Start a free trial. Free for SMU students. Your Library is private to you.</p></div>
-    <div><div class="n">2</div><h3>Drop in your course files</h3><p>PDFs, Word documents, slides, notes, pictures and spreadsheets, straight into the chat.</p></div>
+    <div><div class="n">1</div><h3>Open the demo</h3><p>No sign-in. Start with the sample course, a fictional course written for this demo.</p></div>
+    <div><div class="n">2</div><h3>Or drop in your own files</h3><p>In this demo: PDFs with selectable text, and notes (.txt, .md), straight into the chat.</p></div>
     <div><div class="n">3</div><h3>Ask</h3><p>Plain questions, follow-ups included. Every answer shows where it came from.</p></div>
   </div>
 </div></section>
 
 <section class="cta"><div class="inner">
   <h2>Stop searching your notes. Ask them.</h2>
-  <a class="btn" href="/app">Start free trial</a>
+  <a class="btn" href="/app">Try the demo</a>
 </div></section>
 
 <!--#footer-->
@@ -190,7 +190,7 @@ $("try").onsubmit = e => {
         <a class="btn small" href="/app">Ask about your own files</a></div></div>`
     : `<div class="fade"><div class="ans-q">${esc(q)}</div><div class="ans-card"><div>
         <div class="ans-final">This preview only has a few saved answers.</div>
-        <p style="color:var(--mute-2);margin:8px 0 14px">Sign in to ask your own question about your own files.</p>
+        <p style="color:var(--mute-2);margin:8px 0 14px">Try the demo to ask your own question about the sample course or your own files.</p>
         <a class="btn small" href="${own}">Ask it in Anchor</a></div></div></div>`;
 };
 $("tq").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("try").requestSubmit(); } });

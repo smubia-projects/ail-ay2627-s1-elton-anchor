@@ -1,0 +1,7 @@
+{
+  "name": "ail-ay2627-s1-elton-anchor",
+  "private": true,
+  "scripts": {
+    "build": "node ./build.js"
+  }
+}
