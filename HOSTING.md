@@ -1,5 +1,9 @@
 # Hosting: how Anchor runs today, and its limits
 
+> **AI Lodge showcase:** the hosted demo now runs on Vercel + Cloud Run + Neon,
+> reshaped to fit (README, "This demo"). This file describes the student's own
+> Mac-hosted setup, whose scripts are in git history.
+
 As of 18 October 2026, Anchor is split in two. The public pages run on Vercel;
 the app itself runs on the owner's Mac. This file explains why, and what that
 costs in availability and speed.
