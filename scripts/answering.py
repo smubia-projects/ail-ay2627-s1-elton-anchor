@@ -108,10 +108,11 @@ def ask_no_docs(c, question):
             "retrieved": [], "usage": usage, "model": MODEL, "effort": EFFORT}
 
 
-def ask_with_docs(c, question, evidence, on_text=None):
+def ask_with_docs(c, question, evidence, on_text=None, library_pictures=None):
     """Rungs 2+: answer from the retrieved evidence only, quoting it.
     on_text(reply so far): stream the reply as it is written (the website);
-    the prompt, model and effort are the same either way."""
+    the prompt, model and effort are the same either way.
+    library_pictures: that Library's described pictures (default: the eval Library's)."""
     prompt = WITH_DOCS.replace("{excerpts}", format_excerpts(evidence)).replace("{question}", question)
     if on_text:
         reply, usage = stream_json(c, prompt, on_text, effort=EFFORT, valid=_valid)
@@ -123,5 +124,5 @@ def ask_with_docs(c, question, evidence, on_text=None):
               "retrieved": evidence, "usage": usage, "model": MODEL, "effort": EFFORT}
     # The pictures its steps rest on, found by code (pictures.py): the answer
     # says so and shows them, because a Diagram description can be wrong.
-    result["pictures"] = relied_on(result)
+    result["pictures"] = relied_on(result, library_pictures)
     return result
