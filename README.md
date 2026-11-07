@@ -4,10 +4,74 @@ Anchor answers questions from your own course files. Every answer quotes the
 exact words it rests on, links to where they came from, and says plainly when
 your materials don't cover something.
 
-- **Live:** https://anchor-study.vercel.app (press **Try Anchor** to open the app)
-- **Demo clips:** on the front page, recorded from the live app
+- **Live (student's own site):** https://anchor-study.vercel.app (press **Try Anchor** to open the app)
+- **Demo clips:** on the front page, recorded from the full app
+- **AI Lodge showcase:** a smaller, always-on demo on the SMU BIA stack; see
+  [This demo](#this-demo-ai-lodge-showcase) below
 
 ---
+
+## This demo (AI Lodge showcase)
+
+The full app needs about 4 GB of memory, a lasting disk and minutes of
+background work per upload (see `HOSTING.md`), so the showcase is reshaped to
+fit a free-tier stack while keeping Anchor's core: answers only from course
+files, every step quoted and linked, "not in your materials" said plainly, and
+the checker marking anything it can't confirm as **Unsure**.
+
+**What is deployed**
+
+| Part | Where | What |
+| --- | --- | --- |
+| Pages (`web/static/`, built by `web/build.js`) | Vercel, Root Directory `web` | the front page, Uploads, Connectors, FAQ and the app at `/app`; `VITE_API_BASE` points them at the API |
+| API (`web/app.py`, `Dockerfile`) | Google Cloud Run | `/api/health`, `/api/files`, `/api/upload`, `/api/ask/stream`; API only |
+| Passages and vectors | Neon Postgres + pgvector | one `chunks` table, 768-dim embeddings, every query filtered on the Library |
+| Model calls | the club's OpenAI-compatible gateway | `MODEL_NAME` (default `deepseek-v4-flash`, JSON mode), `VISION_MODEL_NAME` (default `gemini-3.5-flash-lite`, offline figure descriptions only) and `EMBEDDING_MODEL_NAME` (`text-embedding-3-small` at 768 dims) |
+
+**How it differs from the full app**
+
+- **No accounts.** No WorkOS sign-in, roles, admin page or per-user question
+  budget. Visitors start in the **sample course** (`demo-library/`): four short
+  files about a *fictional* cloud computing course, written for the demo and
+  released under CC0. The real course files the student evaluated on are
+  university material and are not used. `scripts/load_demo_library.py` loads the
+  sample course into Neon once.
+- **My files.** A visitor can add up to 3 files of their own (PDFs with
+  selectable text, `.txt`, `.md`; 5 MB and 30 pages each). They are kept under
+  an anonymous id stored in that browser and sent as `X-Anchor-Session`:
+  anyone holding the id can see those files. They are deleted 24 hours after
+  upload (`UPLOAD_TTL_HOURS`; the cleanup runs on ordinary requests). The chat
+  history stays in the browser.
+- **Reading files.** PDFs are read from their text layer (pypdfium2) instead
+  of Docling, so there is no OCR for scans, no formula or table-layout
+  models, and no picture descriptions. Word, PowerPoint, pictures, spreadsheets
+  and the phone-scan flow are left out. Chunking is the same (`scripts/chunk.py`).
+- **Retrieval.** Keyword + vector search merged by RRF, as before, but **without
+  the bge-reranker-v2-m3 step** (3.9 GB of memory, 21-34 s of CPU per question),
+  and vectors are 768-dim instead of 1536. The spreadsheet SQL route (DuckDB)
+  is gone, so numeric questions go to hybrid search like the rest.
+- **The 21 of 21 result above was measured on the student's full pipeline**
+  (Docling, reranker, SQL route, GPT-5.6 Luna). The demo's retrieval and models
+  differ, and it has not been re-scored on that question set.
+- **Limits.** The shared AI Lodge rate limiter counts questions (`ask`) and
+  uploads (`upload`, embedding is a model call) per IP; past the limit the app
+  shows the AI Lodge card, and a paused demo shows a notice.
+
+The full app's code that the demo doesn't run stays in the repository and in
+git history: the eval pipeline in `scripts/` (Docling parsing, the reranker,
+the SQL route, grading and the ladder), and `scripts/pentest*.py` /
+`scripts/record_demos.py`, which target the full Mac-hosted app.
+
+**Run the demo locally**
+
+```
+pip install -r requirements-web.txt
+cp .env.example .env          # fill API_KEY and DATABASE_URL (Neon, or local Postgres with pgvector)
+python scripts/load_demo_library.py
+uvicorn app:app --app-dir web --port 8080
+cd web && VITE_API_BASE=http://localhost:8080 node build.js && npx serve dist -l 5173
+python -m pytest tests -q     # API tests; no database or key needed
+```
 
 ## 1. Problem statement
 
@@ -170,6 +234,11 @@ the miss asked about a spreadsheet (see Known limits).
   details. One staff name in `scripts/near_miss.json` reads `[redacted]`.
 
 ## 6. Installation and setup
+
+This section is the full app as the student ran it on a Mac; the hosted
+demo is set up as in [This demo](#this-demo-ai-lodge-showcase). Its web app
+(`web.app` with sign-in, scanning and spreadsheets) is in git history before
+the AI Lodge changes.
 
 You need Python 3.13, PostgreSQL with the pgvector extension, and an OpenAI
 API key. On macOS:
