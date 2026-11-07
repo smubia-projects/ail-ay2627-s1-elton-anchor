@@ -2,19 +2,19 @@
 
   1. Follow-ups   with chat history, one Luna call rewrites the question to
                   stand alone ("and for G8?" -> "Who is the TA for G8?").
-  2. Router       numeric -> the SQL route over this Library's spreadsheets,
-                  falling back to hybrid search; every other tag -> hybrid.
+  2. Router       one cheap call tags the question. In the full app a numeric
+                  question goes to the SQL route over the Library's
+                  spreadsheets; the demo reads no spreadsheets, so every tag
+                  goes to hybrid search (retrieval.py).
   3. Answer       the same Explained-answer prompt the eval scores (answering.py),
                   streamed: the page shows each step and the final answer as
                   they are written (stream() below).
   4. Checker      quotes + support against what was retrieved; failures make
                   the answer Unsure, naming the failed check.
-  5. Pictures     any picture the answer rests on comes back with a note and
-                  its image, to be shown beside the answer (must).
 
-Every query filters on the Library id (store.py), so one user's question never
-reaches another user's material (record 0001). Costs are estimated from the
-tokens each call reports, for the Demo budget.
+The demo reads no pictures (no Diagram descriptions), so no answer rests on one.
+Every query filters on the Library id (retrieval.py), so one visitor's question
+never reaches another visitor's material (record 0001).
 """
 import pathlib
 import queue
@@ -27,22 +27,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import partial_json  # noqa: E402  (web/, beside this file)
 import checker  # noqa: E402
-import hybrid  # noqa: E402
-import library as L  # noqa: E402
-import pictures as P  # noqa: E402
+import retrieval  # noqa: E402  (web/)
 import router  # noqa: E402
-import sql_route  # noqa: E402
 from answering import ask_with_docs  # noqa: E402
 from openai_client import ask_json, client  # noqa: E402
 
 K = 5  # chunks per answer; k scales with Library size (build plan) - 5 suits a small Library
-# Estimated prices, USD per million tokens (HANDOFF.md "Rough costs"). Verify on
-# the OpenAI pricing page before the public launch.
-PRICE_IN, PRICE_OUT = 0.20, 1.20
-# S4 worked solutions (worked.py) lost to the plain route on the solve questions
-# (21 Oct 2026, Build: 5 of 7 correct against 6 of 7), so `solve` goes to hybrid
-# search like every other tag. True brings worked solutions back.
-WORKED = False
 
 CONDENSE = """\
 A student is asking follow-up questions about their course materials. Rewrite
@@ -67,60 +57,6 @@ def _c():
     if _client is None:
         _client = client()
     return _client
-
-
-class Library:
-    """Where one Library's material lives. The eval Library uses the repo's own
-    parsed files; uploaded Libraries live under libraries/<id>/ (ingest.py)."""
-
-    def __init__(self, library_id):
-        self.id = library_id
-        if library_id == "eval":
-            self.root = ROOT
-            self.sheets_db = L.OUT / "sheets.duckdb"
-            self.spreadsheet = L.SPREADSHEET
-        else:
-            self.root = ROOT / "libraries" / library_id
-            self.sheets_db = self.root / "sheets.duckdb"
-            self.spreadsheet = None
-            if self.sheets_db.exists():  # the SQL route's prompt names the spreadsheet(s)
-                import duckdb
-                con = duckdb.connect(str(self.sheets_db), read_only=True)
-                names = [r[0] for r in con.execute("SELECT DISTINCT file FROM cells ORDER BY file").fetchall()]
-                con.close()
-                self.spreadsheet = ", ".join(names) or None
-
-    def has_sheets(self):
-        return self.sheets_db.exists() and (self.id == "eval" or bool(self.spreadsheet))
-
-
-    def cell(self, ref):
-        if self.id == "eval":
-            return L.sheet_cell(ref)
-        import duckdb
-        con = duckdb.connect(str(self.sheets_db), read_only=True)
-        row = con.execute("SELECT value_text, row_label, col_header, file FROM labeled WHERE cell_ref = ?",
-                          [ref]).fetchone()
-        con.close()
-        if not row:
-            return None
-        value, label, header, file = row
-        text = f"{ref} = {value}" + (f" (row: {label})" if label else "") + (f" (column: {header})" if header else "")
-        return {"id": f"sheet:{ref}", "file": file, "loc": ref, "text": text}
-
-    def pictures(self):
-        if self.id == "eval":
-            return P.pictures()
-        import json
-        index = self.root / "pictures.json"
-        return json.loads(index.read_text()) if index.exists() else []
-
-
-def cost(usages):
-    us = [u for u in usages if u]
-    tin = sum(u.get("prompt_tokens", 0) for u in us)
-    tout = sum(u.get("completion_tokens", 0) for u in us)
-    return tin, tout, tin / 1e6 * PRICE_IN + tout / 1e6 * PRICE_OUT
 
 
 def condense(question, history):
@@ -182,12 +118,11 @@ class _Drafts:
 
 
 def answer(library_id, question, history=(), emit=None):
-    """Everything the page shows for one question, plus the cost of making it.
+    """Everything the page shows for one question.
     emit(event), if given, hears how it is going (see stream())."""
     emit = emit or (lambda event: None)
-    lib = Library(library_id)
     c = _c()
-    usages, timing, t0 = [], {}, time.monotonic()
+    timing, t0 = {}, time.monotonic()
 
     def lap(name):
         nonlocal t0
@@ -195,67 +130,26 @@ def answer(library_id, question, history=(), emit=None):
         t0 = time.monotonic()
 
     emit({"type": "stage", "stage": "reading"})
-    standalone, u = condense(question, list(history))
-    usages.append(u)
+    standalone, _ = condense(question, list(history))
     lap("condense")
-    tag, u = router.route(c, standalone)
-    usages.append(u)
+    tag, _ = router.route(c, standalone)
     lap("router")
     route = {"tag": tag, "path": "hybrid"}
     base = {"question": question, "standalone": standalone, "route": route}
-    cells = {}
 
-    def sheet_source(sid):
-        if sid.startswith("sheet:") and sid not in cells:
-            cells[sid] = lib.cell(sid.removeprefix("sheet:"))
-        return cells.get(sid)
-
-    result = None
-    if tag == "numeric" and lib.has_sheets():
-        drafts = _Drafts(emit, sheet_source, base | {"route": {"tag": tag, "path": "sql"}})
-        result, trace = sql_route.answer(c, standalone, db=lib.sheets_db, spreadsheet=lib.spreadsheet, cell=lib.cell,
-                                         on_text=drafts,
-                                         on_evidence=lambda ev: emit({"type": "excerpts", "excerpts": _excerpts(ev)}))
-        usages += trace.get("plan_usage", [])
-        route["path"] = "sql" if result else "sql -> hybrid"
-        lap("sql")
-        if result:
-            drafts.flush()
-        else:
-            emit({"type": "stage", "stage": "reading"})  # back to searching: drop the spreadsheet draft
-    if tag == "solve" and WORKED:
-        # S4: a new problem, worked with the Library's methods; calculations run as code; re-solved.
-        import worked
-        emit({"type": "stage", "stage": "solving"})
-        evidence = [L.as_evidence(h) for h in hybrid.search(standalone, K, library=lib.id)]
-        lap("search")
-        if lib.has_sheets():
-            sheet_ev, plan_usage = worked.sheet_cells(c, standalone, db=lib.sheets_db, spreadsheet=lib.spreadsheet,
-                                                      cell=lib.cell)
-            evidence += sheet_ev
-            usages += plan_usage
-        emit({"type": "excerpts", "excerpts": _excerpts(evidence)})
-        result = worked.solve(c, standalone, evidence)
-        route["path"] = "solve"
-        lap("solve")
-    if result is None:
-        hits = hybrid.search(standalone, K, library=lib.id)
-        lap("search")
-        evidence = [L.as_evidence(h) for h in hits]
-        emit({"type": "excerpts", "excerpts": _excerpts(evidence)})
-        by_id = {e["id"]: e for e in evidence}
-        drafts = _Drafts(emit, by_id.get, base)
-        result = ask_with_docs(c, standalone, evidence, on_text=drafts)
-        drafts.flush()
-        timing["first_text"] = (result.get("usage") or {}).get("first_text_seconds")
-        lap("answer")
-    usages.append(result.get("usage"))
+    hits = retrieval.search(standalone, K, library_id)
+    lap("search")
+    evidence = [retrieval.as_evidence(h) for h in hits]
+    emit({"type": "excerpts", "excerpts": _excerpts(evidence)})
+    by_id = {e["id"]: e for e in evidence}
+    drafts = _Drafts(emit, by_id.get, base)
+    result = ask_with_docs(c, standalone, evidence, on_text=drafts, library_pictures=[])
+    drafts.flush()
+    timing["first_text"] = (result.get("usage") or {}).get("first_text_seconds")
+    lap("answer")
     emit({"type": "stage", "stage": "checking"})
-    result["pictures"] = P.relied_on(result, lib.pictures())
-    checked, u = checker.check(c, standalone, result)
-    usages.append(u)
+    checked, _ = checker.check(c, standalone, result)
     lap("check")
-    tin, tout, usd = cost(usages)
     print(f"[answer] {route['path']}: " + ", ".join(f"{k} {v}s" for k, v in timing.items()), flush=True)
 
     by_id = {e["id"]: e for e in result.get("retrieved", [])}
@@ -263,37 +157,30 @@ def answer(library_id, question, history=(), emit=None):
         "final_answer": result["final_answer"], "not_found": bool(result.get("not_found")),
         "steps": _steps(result.get("steps"), by_id.get),
         "unsure": checked["unsure"], "unsure_reasons": checked["unsure_reasons"],
-        "pictures": result["pictures"], "excerpts": _excerpts(result.get("retrieved")),
-    }, (tin, tout, usd)
+        "pictures": [], "excerpts": _excerpts(result.get("retrieved")),
+    }
 
 
-def stream(library_id, question, history=(), on_done=None, on_error=None):
+def stream(library_id, question, history=()):
     """answer(), as events while it happens, for the website's streamed answers:
 
       {"type": "stage", "stage": "reading"}    rewriting the question, routing, searching
       {"type": "excerpts", "excerpts": [...]}  what was found, before the answer is written
       {"type": "draft", "answer": {...}}       the answer so far, as the model writes it
       {"type": "stage", "stage": "checking"}   written; the checker is running
-      {"type": "done", "answer": {...}, "cost": (tokens in, tokens out, usd)}
+      {"type": "done", "answer": {...}}
       {"type": "error", "message": "..."}
 
     A draft is shown before it is checked; the page says so until "done".
-
-    on_done(answer, cost) -> extra fields for the "done" event, and on_error(), run in
-    the worker thread: it finishes even when the browser has gone, so whatever they
-    record (the chat history, the spend) is recorded either way."""
+    Nothing is stored: the chat history stays in the visitor's browser."""
     events = queue.Queue()
 
     def work():
         try:
-            final, spent = answer(library_id, question, history, emit=events.put)
-            extra = on_done(final, spent) if on_done else None
-            events.put({"type": "done", "answer": final, "cost": spent, **(extra or {})})
+            events.put({"type": "done", "answer": answer(library_id, question, history, emit=events.put)})
         except Exception as e:  # the page shows a plain message; the server log keeps the detail
             import traceback
             traceback.print_exc()
-            if on_error:
-                on_error()
             events.put({"type": "error", "message": f"Something went wrong while answering ({type(e).__name__})."})
         finally:
             events.put(None)

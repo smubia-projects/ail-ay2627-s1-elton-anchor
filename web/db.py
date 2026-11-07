@@ -1,109 +1,117 @@
-"""The website's own tables, in the same Postgres as the chunks (database `ailodge`).
+"""The demo's tables, in Neon Postgres with pgvector (DATABASE_URL).
 
-  users     one row per signed-up user: role owner | admin | member, their
-            Library id, and what they have used against their limits
-  files     the files in each Library (versions kept when "keep both")
-  messages  chat history per user (question, answer JSON)
-  spend     every model call's tokens and estimated cost, against the Demo budget
+  files   one row per file in a Library: its name, format, pages and the readable
+          text citations open (page markers or numbered lines, as chunks cite it)
+  chunks  the searchable passages: text, a 768-dim embedding and a full-text
+          index. Deleting a file deletes its chunks (ON DELETE CASCADE).
 
-Limits (build plan, Website step; glossary):
-  Member  1 file ever, at most 50 pages; 3 questions ever. An Admin can reset either.
-  Admin   at most 3 (owner included); no question limit; 200 pages of uploads.
-  Owner   the one Admin who can promote others.
+Two kinds of Library share the tables, and every query filters on library_id
+(record 0001: one Library's question never reaches another's material):
+
+  demo         the open-licence sample Library, loaded once by
+               scripts/load_demo_library.py; read-only for visitors
+  s:<uuid>     one browser's uploads, keyed by the anonymous session id it keeps
+               in localStorage. Anyone holding the id can see those files. They
+               are deleted UPLOAD_TTL_HOURS after upload (cleanup runs on requests).
 """
 import os
+import threading
+import time
 
-import psycopg
-from psycopg.rows import dict_row
+DIMS = 768
+DEMO = "demo"
+UPLOAD_TTL_HOURS = float(os.environ.get("UPLOAD_TTL_HOURS", "24"))
 
-MEMBER_FILES, MEMBER_PAGES, MEMBER_QUESTIONS = 1, 50, 3
-ADMIN_PAGES, MAX_ADMINS = 200, 3
-DEMO_BUDGET_USD = float(os.environ.get("DEMO_BUDGET_USD", "5.00"))  # owner, 21 Oct: $5 (was $1)
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id              serial PRIMARY KEY,
-    email           text UNIQUE NOT NULL,
-    name            text,
-    role            text NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
-    library_id      text UNIQUE NOT NULL,
-    questions_used  int NOT NULL DEFAULT 0,
-    files_used      int NOT NULL DEFAULT 0,
-    pages_used      int NOT NULL DEFAULT 0,
-    created         timestamptz NOT NULL DEFAULT now()
-);
+SCHEMA = f"""
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS files (
     id          serial PRIMARY KEY,
-    user_id     int NOT NULL REFERENCES users(id),
     library_id  text NOT NULL,
     name        text NOT NULL,          -- the name chunks cite
-    label       text,                   -- "uploaded 18 Oct" when a same-name version is kept
-    format      text NOT NULL,
+    format      text NOT NULL,          -- PDF | Text
     pages       int NOT NULL,
-    path        text NOT NULL,          -- the stored file, relative to the repo
-    status      text NOT NULL DEFAULT 'ready',   -- processing | ready | failed
-    error       text,
-    created     timestamptz NOT NULL DEFAULT now()
+    body        text NOT NULL,          -- the readable copy a citation opens
+    created     timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (library_id, name)
 );
--- Signed in through the login service with a verified smu.edu.sg email (auth.py): free plan.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_smu boolean NOT NULL DEFAULT false;
--- Uploads (ingest.py): what processing is doing now, and the readable copy citations open.
-ALTER TABLE files ADD COLUMN IF NOT EXISTS progress text;
-ALTER TABLE files ADD COLUMN IF NOT EXISTS parsed text;
--- A scan: photos of printed pages (scan.py), or any PDF with no text layer; read by OCR.
-ALTER TABLE files ADD COLUMN IF NOT EXISTS scanned boolean NOT NULL DEFAULT false;
-CREATE TABLE IF NOT EXISTS messages (
-    id       serial PRIMARY KEY,
-    user_id  int NOT NULL REFERENCES users(id),
-    question text NOT NULL,
-    answer   jsonb NOT NULL,
-    created  timestamptz NOT NULL DEFAULT now()
+CREATE INDEX IF NOT EXISTS files_library ON files (library_id, created);
+CREATE TABLE IF NOT EXISTS chunks (
+    library_id text NOT NULL,
+    chunk_id   text NOT NULL,
+    file_id    int NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    file       text NOT NULL,
+    loc        text,
+    heading    text,
+    text       text NOT NULL,
+    embedding  vector({DIMS}) NOT NULL,
+    -- what keyword search reads: the same header + text that is embedded
+    tsv        tsvector GENERATED ALWAYS AS (
+                   to_tsvector('english', file || ' ' || coalesce(loc, '') || ' ' || text)) STORED,
+    PRIMARY KEY (library_id, chunk_id)
 );
-CREATE TABLE IF NOT EXISTS spend (
-    id          serial PRIMARY KEY,
-    user_id     int REFERENCES users(id),
-    kind        text NOT NULL,          -- answer | upload
-    tokens_in   int NOT NULL,
-    tokens_out  int NOT NULL,
-    usd         numeric(10, 6) NOT NULL,
-    created     timestamptz NOT NULL DEFAULT now()
-);
+CREATE INDEX IF NOT EXISTS chunks_tsv ON chunks USING gin (tsv);
 """
+
+_ready = False
+_ready_lock = threading.Lock()
+_last_cleanup = 0.0
+
+
+def configured():
+    return bool(os.environ.get("DATABASE_URL", "").strip())
 
 
 def connect():
-    # WEB_PGDATABASE keeps the website's tables apart when testing (the chunks
-    # stay in PGDATABASE, default "ailodge").
-    name = os.environ.get("WEB_PGDATABASE") or os.environ.get("PGDATABASE", "ailodge")
-    return psycopg.connect(dbname=name, autocommit=True, row_factory=dict_row)
+    import psycopg
+    from psycopg.rows import dict_row
+    return psycopg.connect(os.environ["DATABASE_URL"].strip(), autocommit=True, row_factory=dict_row)
 
 
 def init():
-    with connect() as conn:
-        conn.execute(SCHEMA)
-        # A file still 'processing' when the server starts was cut off by a restart.
-        conn.execute("UPDATE files SET status = 'failed', progress = NULL, error = 'Stopped by a server restart - please upload it again.' "
-                     "WHERE status = 'processing'")
+    """Create the tables once per process (first request), not at import: the app
+    starts and answers /api/health even before DATABASE_URL is set."""
+    global _ready
+    if _ready:
+        return
+    with _ready_lock:
+        if not _ready:
+            with connect() as conn:
+                conn.execute(SCHEMA)
+            _ready = True
 
 
 def one(sql, args=()):
+    init()
     with connect() as conn:
         return conn.execute(sql, args).fetchone()
 
 
 def all_(sql, args=()):
+    init()
     with connect() as conn:
         return conn.execute(sql, args).fetchall()
 
 
 def run(sql, args=()):
+    init()
     with connect() as conn:
         conn.execute(sql, args)
 
 
-def spent_usd():
-    return float(one("SELECT coalesce(sum(usd), 0) AS s FROM spend")["s"])
+def many(sql, rows):
+    init()
+    with connect() as conn, conn.cursor() as cur:
+        cur.executemany(sql, rows)
 
 
-def budget_left():
-    return DEMO_BUDGET_USD - spent_usd()
+def cleanup(force=False):
+    """Delete visitors' uploads older than UPLOAD_TTL_HOURS (their chunks go with them).
+    Runs on ordinary requests, at most once a minute per instance: Cloud Run runs
+    nothing between requests, so there is no timer."""
+    global _last_cleanup
+    now = time.monotonic()
+    if not force and now - _last_cleanup < 60:
+        return
+    _last_cleanup = now
+    run("DELETE FROM files WHERE library_id <> %s AND created < now() - make_interval(secs => %s)",
+        (DEMO, UPLOAD_TTL_HOURS * 3600))

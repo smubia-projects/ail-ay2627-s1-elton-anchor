@@ -1,0 +1,11 @@
+CC101 announcements (fictional course, written for the Anchor demo)
+
+Week 2, Monday: Welcome to CC101. Quiz 1 is open now. Sections S1 and S2 meet in Lab 1 as planned.
+
+Week 5, Friday: Lab 3 is due on Sunday at 23:59 as usual. Several of you asked about port 80: please keep using port 8080 as the hints say.
+
+Week 6, Wednesday: Project proposals are due this Friday at 18:00. Submit one PDF per team; only one member needs to upload it.
+
+Week 9, Monday: Section S4 moves from Lab 4 to Lab 2 for the rest of the term because of building works. All other sections stay where they are.
+
+Week 11, Thursday: The group project demo has moved to week 14 (was week 13) to give teams more time after the cloud outage. Peer reviews are due with the demo.

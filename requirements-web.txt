@@ -1,0 +1,10 @@
+# The deployed API (web/, Cloud Run) and scripts/load_demo_library.py. The full
+# eval pipeline (Docling, the reranker, DuckDB) stays in requirements.txt.
+fastapi==0.115.6
+uvicorn==0.34.0
+python-multipart==0.0.20
+openai==3.31.0            # gateway client: chat completions + embeddings (768 dims)
+tiktoken==0.14.0          # chunk sizes in cl100k_base tokens (scripts/chunk.py)
+psycopg[binary]==3.3.6    # Neon Postgres with pgvector
+pypdfium2==5.14.0         # PDF text layer for uploads
+upstash-redis==1.8.0      # shared AI Lodge rate limiter
