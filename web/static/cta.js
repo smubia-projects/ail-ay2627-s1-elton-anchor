@@ -8,9 +8,9 @@ window.AnchorCTA = (() => {
     name: "Anchor",
     emoji: "\u{2693}",
     accentColor: "#1e3a5f", // set in cta.css as --rl-accent
-    headline: "You've reached the bottom of this demo!",
+    headline: "Every answer came with receipts!",
     description:
-      "You've used {count} of this demo's AI actions, each answered only from course files, quoted and checked. Come back later for more, or build AI you can trust with us.",
+      "Want to build AI that only says what its sources can back up? At AI Lodge you pair designers, coders and data minds in one team and ship something strangers can use.",
     programme: "AI Lodge",
     programmeLink: "https://www.smubia.com/ailodge",
     githubLink: "https://github.com/smubia-projects/ail-ay2627-s1-elton-anchor",
