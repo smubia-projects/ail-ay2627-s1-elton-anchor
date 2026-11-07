@@ -5,7 +5,8 @@ first key was for apiyi, an OpenAI-compatible relay without Luna, so record
 0003 ran everything on gpt-5-mini there; the Diagram descriptions in parsed/
 were written by gemini-3.5-flash-lite on that relay and are kept as they are.
 
-The key lives in .env (gitignored). Both shapes are accepted:
+The key comes from API_KEY (the AI Lodge deploy) or OPENAI_API_KEY, else from
+.env (gitignored), where both shapes are accepted:
 
   OPENAI_API_KEY=sk-...
   sk-...                 (a bare key on its own line)
@@ -19,36 +20,62 @@ from openai import OpenAI
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+def _env(*names, default=""):
+    """The first of these environment variables that is set (new AI Lodge names first)."""
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return default
+
+
+# AI Lodge names first (API_BASE_URL, API_KEY, MODEL_NAME, <PURPOSE>_MODEL_NAME);
+# the original OPENAI_* names still work. Default: the apiyi gateway and deepseek-v4-flash
+# for text (record 0003 ran everything on gpt-5-mini through apiyi).
+BASE_URL = _env("API_BASE_URL", "OPENAI_BASE_URL", default="https://api.apiyi.com/v1")
 # Every model call: answering, checking, grading (docs/adr/0005).
-MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
-EMBEDDING_MODEL = "text-embedding-3-small"
+MODEL = _env("MODEL_NAME", "OPENAI_MODEL", default="deepseek-v4-flash")
+EMBEDDING_MODEL = _env("EMBEDDING_MODEL_NAME", default="text-embedding-3-small")
 # Diagram descriptions. Gemini (record 0003) is not on OpenAI; Luna has not been
 # tested on the eval images yet - gpt-5-mini misread the Q07 arrow 7 of 7 times.
-# Test before regenerating parsed/*__png.md.
-VISION_MODEL = os.environ.get("VISION_MODEL", MODEL)
+# Test before regenerating parsed/*__png.md. DeepSeek has no vision, so this does
+# not follow MODEL: it defaults to the Gemini model that wrote the kept descriptions.
+VISION_MODEL = _env("VISION_MODEL_NAME", "VISION_MODEL", default="gemini-3.5-flash-lite")
+
+
+# Models asked for JSON mode (response_format json_object). Gemini and DeepSeek on
+# apiyi honour it too; Claude and others fall back to the reply's {...} being parsed.
+JSON_MODE_PREFIXES = ("gpt-", "gemini-", "deepseek-")
 
 
 def load_key():
-    if os.environ.get("OPENAI_API_KEY"):
-        return os.environ["OPENAI_API_KEY"]
+    """The key from API_KEY / OPENAI_API_KEY, else from a local .env; "" when there is none."""
+    key = _env("API_KEY", "OPENAI_API_KEY")
+    if key:
+        return key
     env = ROOT / ".env"
+    if not env.exists():
+        return ""
     for line in env.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         if "=" in line:
             name, _, value = line.partition("=")
-            if name.strip().removeprefix("export ").strip() == "OPENAI_API_KEY":
+            if name.strip().removeprefix("export ").strip() in ("API_KEY", "OPENAI_API_KEY") and value.strip():
                 return value.strip().strip("'\"")
         elif line.startswith("sk-"):
             return line
-    raise SystemExit("No OpenAI key found in .env or OPENAI_API_KEY")
+    return ""
 
 
 def client():
     # max_retries 5 (default 2): a dropped connection mid-run otherwise loses the question.
-    return OpenAI(api_key=load_key(), base_url=BASE_URL, max_retries=5)
+    key = load_key()
+    if not key:
+        raise RuntimeError("No API key: set API_KEY (or OPENAI_API_KEY)")
+    return OpenAI(api_key=key, base_url=BASE_URL, max_retries=5)
 
 
 def ask_json(c, prompt, effort="low", model=None, valid=None, strict=True):
@@ -67,7 +94,7 @@ def ask_json(c, prompt, effort="low", model=None, valid=None, strict=True):
     import time
     model = model or MODEL
     extra = {}
-    if model.startswith("gpt-"):
+    if model.startswith(JSON_MODE_PREFIXES):
         # JSON mode: the API guarantees a parseable object (a free-text reply
         # once broke a scoring run with a missing comma).
         extra["response_format"] = {"type": "json_object"}
@@ -117,7 +144,7 @@ def stream_json(c, prompt, on_text, effort="low", model=None, valid=None):
     import time
     model = model or MODEL
     extra = {}
-    if model.startswith("gpt-"):
+    if model.startswith(JSON_MODE_PREFIXES):
         extra["response_format"] = {"type": "json_object"}
     if model.startswith("gpt-5"):
         extra["reasoning_effort"] = effort
