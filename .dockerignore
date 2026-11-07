@@ -1,0 +1,21 @@
+# Only requirements-web.txt, web/*.py and a few scripts/*.py are copied (see Dockerfile).
+.git
+.github
+.env
+.env.*
+.venv/
+venv/
+__pycache__/
+*.pyc
+eval set/
+parsed/
+libraries/
+site/
+submission/
+demo-library/
+docs/
+tests/
+web/static/
+web/dist/
+web/node_modules/
+*.md
