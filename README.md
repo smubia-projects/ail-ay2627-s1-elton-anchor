@@ -26,7 +26,7 @@ the checker marking anything it can't confirm as **Unsure**.
 | Pages (`web/static/`, built by `web/build.js`) | Vercel, Root Directory `web` | the front page, Uploads, Connectors, FAQ and the app at `/app`; `VITE_API_BASE` points them at the API |
 | API (`web/app.py`, `Dockerfile`) | Google Cloud Run | `/api/health`, `/api/files`, `/api/upload`, `/api/ask/stream`; API only |
 | Passages and vectors | Neon Postgres + pgvector | one `chunks` table, 768-dim embeddings, every query filtered on the Library |
-| Model calls | the club's OpenAI-compatible gateway | `MODEL_NAME` (default `deepseek-v4-flash`, JSON mode), `VISION_MODEL_NAME` (default `gemini-3.5-flash-lite`, offline figure descriptions only) and `EMBEDDING_MODEL_NAME` (`text-embedding-3-small` at 768 dims) |
+| Model calls | the club's OpenAI-compatible gateway | `MODEL_NAME` (default `deepseek-v4-1-flash-260910`, JSON mode), `VISION_MODEL_NAME` (default `deepseek-v4-1-flash-260910`, offline figure descriptions only) and `EMBEDDING_MODEL_NAME` (`text-embedding-3-small` at 768 dims) |
 
 **How it differs from the full app**
 

@@ -31,17 +31,17 @@ def _env(*names, default=""):
 
 
 # AI Lodge names first (API_BASE_URL, API_KEY, MODEL_NAME, <PURPOSE>_MODEL_NAME);
-# the original OPENAI_* names still work. Default: the apiyi gateway and deepseek-v4-flash
-# for text (record 0003 ran everything on gpt-5-mini through apiyi).
+# the original OPENAI_* names still work. Default: the apiyi gateway and deepseek-v4-1-flash-260910
+# for text and vision (record 0003 ran everything on gpt-5-mini through apiyi).
 BASE_URL = _env("API_BASE_URL", "OPENAI_BASE_URL", default="https://api.apiyi.com/v1")
 # Every model call: answering, checking, grading (docs/adr/0005).
-MODEL = _env("MODEL_NAME", "OPENAI_MODEL", default="deepseek-v4-flash")
+MODEL = _env("MODEL_NAME", "OPENAI_MODEL", default="deepseek-v4-1-flash-260910")
 EMBEDDING_MODEL = _env("EMBEDDING_MODEL_NAME", default="text-embedding-3-small")
-# Diagram descriptions. Gemini (record 0003) is not on OpenAI; Luna has not been
-# tested on the eval images yet - gpt-5-mini misread the Q07 arrow 7 of 7 times.
-# Test before regenerating parsed/*__png.md. DeepSeek has no vision, so this does
-# not follow MODEL: it defaults to the Gemini model that wrote the kept descriptions.
-VISION_MODEL = _env("VISION_MODEL_NAME", "VISION_MODEL", default="gemini-3.5-flash-lite")
+# Diagram descriptions (offline scripts only). The kept parsed/*__png.md descriptions were
+# written by gemini-3.5-flash-lite (record 0003); gpt-5-mini misread the Q07 arrow 7 of 7 times.
+# The default is the AI Lodge vision default (deepseek-v4-1-flash-260910 reads images), not yet
+# tested on the eval images: test it on Q07 before regenerating parsed/*__png.md.
+VISION_MODEL = _env("VISION_MODEL_NAME", "VISION_MODEL", default="deepseek-v4-1-flash-260910")
 
 
 # Models asked for JSON mode (response_format json_object). Gemini and DeepSeek on
@@ -100,6 +100,8 @@ def ask_json(c, prompt, effort="low", model=None, valid=None, strict=True):
         extra["response_format"] = {"type": "json_object"}
     if model.startswith("gpt-5"):
         extra["reasoning_effort"] = effort
+    elif "deepseek" in model:
+        extra["reasoning_effort"] = "none"  # DeepSeek thinks first by default (one answer once took 196 s)
     t0 = time.time()
     tokens_in = tokens_out = reasoning = 0
     fallback = None
@@ -148,6 +150,8 @@ def stream_json(c, prompt, on_text, effort="low", model=None, valid=None):
         extra["response_format"] = {"type": "json_object"}
     if model.startswith("gpt-5"):
         extra["reasoning_effort"] = effort
+    elif "deepseek" in model:
+        extra["reasoning_effort"] = "none"  # DeepSeek thinks first by default (one answer once took 196 s)
     t0 = time.time()
     text, u, resp_model = "", None, model
     stream = c.chat.completions.create(model=model, **extra, stream=True, stream_options={"include_usage": True},
